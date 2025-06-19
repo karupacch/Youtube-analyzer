@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube 動画情報集計サービス</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        form { margin-bottom: 30px; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], select { width: 300px; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        input[type="radio"] { margin-right: 5px; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        .message { margin-top: 20px; padding: 10px; border-radius: 4px; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    </style>
+</head>
+<body>
+    <h1>YouTube 動画情報集計サービス</h1>
+    <form action="/search" method="post">
+        <label for="query">検索キーワード:</label>
+        <input type="text" id="query" name="query" required placeholder="例: 猫 面白い, プログラミング 学習">
+        <br>
+
+        <label for="video_type">動画タイプ:</label>
+        <select id="video_type" name="video_type">
+            <option value="any" selected>両方</option>
+            <option value="short">ショート動画のみ</option>
+            <option value="long">ロング動画のみ</option>
+        </select>
+        <br>
+
+        <label for="order">並び順:</label>
+        <select id="order" name="order">
+            <option value="relevance" selected>関連度順</option>
+            <option value="date">新しい順</option>
+            <option value="viewCount">再生数順</option>
+        </select>
+        <br>
+
+        <label for="published_after">公開期間 (開始):</label>
+        <input type="date" id="published_after" name="published_after">
+        <br>
+
+        <label for="published_before">公開期間 (終了):</label>
+        <input type="date" id="published_before" name="published_before">
+        <br>
+
+        <label for="max_results">最大取得件数 (1-50):</label>
+        <input type="number" id="max_results" name="max_results" value="20" min="1" max="50">
+        <br>
+
+        <button type="submit">動画を検索しCSVをダウンロード</button>
+    </form>
+    {% if message %}
+        <div class="message {{ message_type }}">{{ message }}</div>
+    {% endif %}
+</body>
+</html>
