@@ -47,7 +47,14 @@ class GoogleSheetsAPI:
         spreadsheet_body = {
             'properties': {
                 'title': title
-            }
+            },
+            'sheets': [
+                {
+                    'properties': {
+                        'title': 'Sheet1' # 最初のシート名を明示的に'Sheet1'に設定
+                    }
+                }
+            ]
         }
         spreadsheet = self.service.spreadsheets().create(
             body=spreadsheet_body, fields='spreadsheetId'

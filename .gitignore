@@ -14,5 +14,5 @@ __pycache__/
 Thumbs.db
 
 # 認証トークンファイル
-token.picklecredentials.json
 token.pickle
+credentials.json
