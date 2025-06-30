@@ -1,13 +1,14 @@
 # app.py
 
 import os
-from flask import Flask, send_file, request, render_template # render_template_string から render_template に変更
+from flask import Flask, send_file, request, render_template
 from dotenv import load_dotenv
 import pandas as pd
 import io
 
 # 自分で作成するAPI連携モジュールをインポート
-from youtube_api import YouTubeAPI # youtube_api.py から YouTubeAPI クラスをインポート
+from youtube_api import YouTubeAPI
+from google_sheets_api import GoogleSheetsAPI
 
 # .envファイルから環境変数を読み込む
 load_dotenv()
@@ -20,6 +21,8 @@ app = Flask(__name__)
 
 # YouTube APIクライアントの初期化 (YouTubeAPIクラスのインスタンスを生成)
 youtube_client = YouTubeAPI(api_key=YOUTUBE_API_KEY)
+# Google Sheets APIクライアントの初期化
+google_sheets_client = GoogleSheetsAPI()
 
 
 # -----------------------------------------------------------
@@ -32,7 +35,7 @@ def index():
     # templates/index.html をレンダリング
     return render_template('index.html')
 
-# 検索リクエストを処理し、CSVを返すルート
+# 検索リクエストを処理し、CSVを返すルートからスプレッドシートに書き出すように変更
 @app.route('/search', methods=['POST'])
 def search():
     query = request.form['query']
@@ -61,18 +64,27 @@ def search():
     # Pandas DataFrameに変換
     df = pd.DataFrame(videos)
 
-    # CSVをメモリに書き込む
-    output = io.StringIO()
-    df.to_csv(output, index=False, encoding='utf-8-sig') # Excelで開けるように utf-8-sig
-    output.seek(0) # ストリームの先頭に戻る
+    # ★Google スプレッドシートへのエクスポート処理★
+    try:
+        spreadsheet_title = f"Youtube_Results_{query}_{video_type}"
+        # スプレッドシートを新規作成し、IDを取得
+        spreadsheet_id = google_sheets_client.create_spreadsheet(spreadsheet_title)
+        
+        # データをスプレッドシートに書き込む ('Sheet1!A1' は最初のシートのA1セルから書き込む)
+        google_sheets_client.write_data_to_sheet(spreadsheet_id, 'Sheet1!A1', df)
+        
+        # スプレッドシートのURLを生成し、メッセージとしてユーザーに表示
+        sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
+        message = f"検索結果をGoogleスプレッドシートにエクスポートしました: <a href='{sheets_url}' target='_blank'>{sheets_url}</a>"
+        message_type = "success"
 
-    # CSVファイルをダウンロードとして送信
-    return send_file(
-        io.BytesIO(output.getvalue().encode('utf-8-sig')), # バイトデータとして送信
-        mimetype='text/csv',
-        as_attachment=True,
-        download_name=f'youtube_videos_{query}_{video_type}.csv'
-    )
+    except Exception as e:
+        print(f"Google スプレッドシートへのエクスポート中にエラーが発生しました: {e}")
+        message = f"Google スプレッドシートへのエクスポートに失敗しました: {e}"
+        message_type = "error"
+    
+    # CSVダウンロード処理は削除し、スプレッドシートへのエクスポート結果をメッセージとして返す
+    return render_template('index.html', message=message, message_type=message_type)
 
 # アプリケーションを実行
 if __name__ == '__main__':
