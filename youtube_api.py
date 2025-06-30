@@ -88,6 +88,9 @@ class YouTubeAPI:
                             '公開日時': video_item['snippet']['publishedAt'],
                             '再生回数': video_item['statistics'].get('viewCount', 'N/A'),
                             '高評価数': video_item['statistics'].get('likeCount', 'N/A'),
+                            'コメント数': video_item['statistics'].get('commentCount', 'N/A'),
+                            '動画説明文': video_item['snippet'].get('description', 'N/A'),
+                            'サムネイルURL': video_item['snippet']['thumbnails'].get('high', {}).get('url', 'N/A'),
                             '動画タイプ': is_short
                         })
 
