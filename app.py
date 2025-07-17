@@ -44,6 +44,7 @@ def search():
     published_after = request.form.get('published_after') # 空の場合もあるのでデフォルト値は設定しない
     published_before = request.form.get('published_before')
     max_results = int(request.form.get('max_results', 20))
+    use_sheets_integration = request.form.get('use_sheets_integration') # チェックボックスの状態を取得
 
     if not query:
         return render_template('index.html', message="検索キーワードを入力してください。", message_type="error")
@@ -64,27 +65,43 @@ def search():
     # Pandas DataFrameに変換
     df = pd.DataFrame(videos)
 
-    # ★Google スプレッドシートへのエクスポート処理★
-    try:
-        spreadsheet_title = f"Youtube_Results_{query}_{video_type}"
-        # スプレッドシートを新規作成し、IDを取得
-        spreadsheet_id = google_sheets_client.create_spreadsheet(spreadsheet_title)
-        
-        # データをスプレッドシートに書き込む ('Sheet1!A1' は最初のシートのA1セルから書き込む)
-        google_sheets_client.write_data_to_sheet(spreadsheet_id, 'Sheet1!A1', df)
-        
-        # スプレッドシートのURLを生成し、メッセージとしてユーザーに表示
-        sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
-        message = f"検索結果をGoogleスプレッドシートにエクスポートしました: <a href='{sheets_url}' target='_blank'>{sheets_url}</a>"
-        message_type = "success"
+    if order == 'viewCount':
+        # '再生回数'カラムを数値型に変換します。変換できない値('N/A'など)はNaNになり、fillna(0)で0に置換します。
+        df['再生回数'] = pd.to_numeric(df['再生回数'], errors='coerce').fillna(0)
+        # 再生回数が多い順（降順）にソートします
+        df = df.sort_values(by='再生回数', ascending=False)
 
-    except Exception as e:
-        print(f"Google スプレッドシートへのエクスポート中にエラーが発生しました: {e}")
-        message = f"Google スプレッドシートへのエクスポートに失敗しました: {e}"
-        message_type = "error"
-    
-    # CSVダウンロード処理は削除し、スプレッドシートへのエクスポート結果をメッセージとして返す
-    return render_template('index.html', message=message, message_type=message_type)
+    # ★Google スプレッドシートへのエクスポート処理★
+    if use_sheets_integration == 'on': # チェックボックスがオンの場合
+        try:
+            spreadsheet_title = f"Youtube_Results_{query}_{video_type}"
+            spreadsheet_id = google_sheets_client.create_spreadsheet(spreadsheet_title)
+            
+            google_sheets_client.write_data_to_sheet(spreadsheet_id, 'Sheet1!A1', df)
+            
+            sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
+            message = f"検索結果をGoogleスプレッドシートにエクスポートしました: <a href='{sheets_url}' target='_blank'>{sheets_url}</a>"
+            message_type = "success"
+
+        except Exception as e:
+            print(f"Google スプレッドシートへのエクスポート中にエラーが発生しました: {e}")
+            message = f"Google スプレッドシートへのエクスポートに失敗しました: {e}"
+            message_type = "error"
+        
+        # CSVダウンロード処理は削除し、スプレッドシートへのエクスポート結果をメッセージとして返す
+        return render_template('index.html', message=message, message_type=message_type)
+    else: # チェックボックスがオフの場合（CSVダウンロード）
+        output = io.StringIO()
+        df.to_csv(output, index=False, encoding='utf-8-sig')
+        output.seek(0)
+        
+        # CSVファイルをダウンロードとして送信
+        return send_file(
+            io.BytesIO(output.getvalue().encode('utf-8-sig')),
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=f'youtube_videos_{query}_{video_type}.csv'
+        )
 
 # アプリケーションを実行
 if __name__ == '__main__':

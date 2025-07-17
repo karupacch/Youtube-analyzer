@@ -4,18 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YouTube 動画情報集計サービス</title>
-    <style>
-        body { font-family: sans-serif; margin: 20px; }
-        form { margin-bottom: 30px; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input[type="text"], select { width: 300px; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; }
-        input[type="radio"] { margin-right: 5px; }
-        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background-color: #0056b3; }
-        .message { margin-top: 20px; padding: 10px; border-radius: 4px; }
-        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
 </head>
 <body>
     <h1>YouTube 動画情報集計サービス</h1>
@@ -52,10 +41,17 @@
         <input type="number" id="max_results" name="max_results" value="20" min="1" max="50">
         <br>
 
-        <button type="submit">動画を検索しCSVをダウンロード</button>
+        <label>
+            <input type="checkbox" id="use_sheets_integration" name="use_sheets_integration">
+            Google スプレッドシート連携を使用する
+        </label>
+        <br><br>
+        <button type="submit" id="submit_button">動画を検索しCSVをダウンロード</button>
     </form>
     {% if message %}
         <div class="message {{ message_type }}">{{ message }}</div>
     {% endif %}
+
+    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
 </body>
 </html>
