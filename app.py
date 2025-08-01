@@ -75,12 +75,20 @@ def search():
     if use_sheets_integration == 'on': # チェックボックスがオンの場合
         try:
             spreadsheet_title = f"Youtube_Results_{query}_{video_type}"
-            spreadsheet_id = google_sheets_client.create_spreadsheet(spreadsheet_title)
+            spreadsheet_id, sheet_id = google_sheets_client.create_spreadsheet(spreadsheet_title)
             
+            # データ書き込み
             google_sheets_client.write_data_to_sheet(spreadsheet_id, 'Sheet1!A1', df)
+
+            # データ書き込み後にフォーマットを適用
+            # df.columns.tolist()でDataFrameのヘッダー（カラム名）を渡します
+            if sheet_id is not None:
+                google_sheets_client.format_sheet_for_description(spreadsheet_id, 'Sheet1', df.columns.tolist(), sheet_id)
+            else:
+                print("警告: シートIDが取得できなかったため、フォーマットは適用されません。")
             
             sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
-            message = f"検索結果をGoogleスプレッドシートにエクスポートしました: <a href='{sheets_url}' target='_blank'>{sheets_url}</a>"
+            message = f"検索結果をGoogleスプレッドシートにエクスポートしました: <a href='{sheets_url}' target='_blank' class='button-link'>スプレッドシートを開く</a>"
             message_type = "success"
 
         except Exception as e:
