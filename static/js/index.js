@@ -1,15 +1,23 @@
-const useSheetsCheckbox = document.getElementById('use_sheets_integration');
-const submitButton = document.getElementById('submit_button');
-
-// チェックボックスの状態に基づいてボタンのテキストを更新する関数
-function updateButtonText() {
-    if (useSheetsCheckbox.checked) {
-        submitButton.textContent = '動画を検索しスプレッドシートに出力';
-    } else {
-        submitButton.textContent = '動画を検索しCSVをダウンロード';
+// Vue.js アプリケーションの作成
+const app = Vue.createApp({
+    data() {
+        return {
+            useSheetsIntegration: false, // チェックボックスの初期状態
+        };
+    },
+    computed: {
+        submitButtonText() {
+            return this.useSheetsIntegration ? '動画を検索しスプレッドシートに出力' : '動画を検索しCSVをダウンロード';
+        }
+    },
+    mounted() {
+        // ページロード時にチェックボックスの初期状態を反映
+        const checkbox = document.getElementById('use_sheets_integration');
+        if (checkbox) {
+            this.useSheetsIntegration = checkbox.checked;
+        }
     }
-}
+});
 
-// ページロード時とチェックボックスの状態が変わった時にボタンのテキストを更新
-updateButtonText(); // 初期表示時の設定
-useSheetsCheckbox.addEventListener('change', updateButtonText);
+// VueアプリケーションをHTML要素にマウント
+app.mount('#app'); // #appというIDを持つ要素にマウントすることを想定
