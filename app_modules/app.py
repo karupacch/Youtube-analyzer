@@ -1,6 +1,7 @@
 # app.py
 
 import os
+import json
 from flask import Flask, send_file, request, render_template
 from dotenv import load_dotenv
 import pandas as pd
@@ -114,20 +115,22 @@ def search():
                 if sheet_id is not None:
                     google_sheets_client.format_sheet(spreadsheet_id, df.columns.tolist(), sheet_id)
 
-        # 分析結果を新しいシートに書き込む
-            analysis_sheet_id = google_sheets_client.create_new_sheet(spreadsheet_id, '分析結果')
-            google_sheets_client.write_analysis_to_sheet(spreadsheet_id, analysis_result, analysis_sheet_id)
+            # 分析結果を新しいシートに書き込む
+            analysis_sheet_title = '分析結果'
+            analysis_sheet_id = google_sheets_client.create_new_sheet(spreadsheet_id, analysis_sheet_title)
+            google_sheets_client.write_analysis_to_sheet(spreadsheet_id, analysis_result, analysis_sheet_title)
 
             sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
             message = f"検索結果をGoogleスプレッドシートにエクスポートしました: <a href='{sheets_url}' target='_blank' class='button-link'>スプレッドシートを開く</a>"
             message_type = "success"
 
+            return render_template('index.html', message=message, message_type=message_type, analysis_result=analysis_result)
+
         except Exception as e:
             print(f"Google スプレッドシートへのエクスポート中にエラーが発生しました: {e}")
             message = f"Google スプレッドシートへのエクスポートに失敗しました: {e}"
             message_type = "error"
-        
-        return render_template('index.html', message=message, message_type=message_type)
+            return render_template('index.html', message=message, message_type=message_type, analysis_result=analysis_result)
         
     else:
         # CSV出力の場合
@@ -149,8 +152,12 @@ def search():
         zip_buffer.seek(0)
         
         # CSVダウンロードボタンの代わりに、分析結果を表示して、別途ダウンロードボタンを設置することも可能
-        # 今回は、ダウンロードと分析結果表示を同時に行い、分析結果をテンプレートに渡す
-        return render_template('index.html', analysis_result=analysis_result)
+        return send_file(
+            zip_buffer,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=f'youtube_videos_by_genre_{genre}.zip' if genre else f'youtube_videos_{query}_{video_type}.zip'
+        )
 
 # アプリケーションを実行
 if __name__ == '__main__':

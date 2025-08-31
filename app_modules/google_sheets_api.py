@@ -106,17 +106,13 @@ class GoogleSheetsAPI:
         print(f"{result.get('updatedCells')} セルが更新されました。")
         return result
     
-    def write_analysis_to_sheet(self, spreadsheet_id, analysis_text, sheet_title, sheet_id):
+    def write_analysis_to_sheet(self, spreadsheet_id, analysis_text, sheet_title):
         """
         指定されたスプレッドシートの新しいシートに分析結果を書き込みます。
         """
-        # AIからの応答（Markdown形式）を行ごとに分割してリストに変換
         values = [[line] for line in analysis_text.split('\n')]
-        body = {
-            'values': values
-        }
-        
-        # 最初のセルに書き込む
+        body = {'values': values}
+
         range_name = f"'{sheet_title}'!A1"
         self.service.spreadsheets().values().update(
             spreadsheetId=spreadsheet_id,
@@ -124,34 +120,20 @@ class GoogleSheetsAPI:
             valueInputOption='RAW',
             body=body
         ).execute()
-
-        # 書き込んだセルに書式設定（テキストの折り返し）を適用
-        requests = [
-            {
-                'repeatCell': {
-                    'range': {
-                        'sheetId': self.get_sheet_id_by_title(spreadsheet_id, sheet_title),
-                        'startRowIndex': 0,
-                        'endRowIndex': len(values),
-                        'startColumnIndex': 0,
-                        'endColumnIndex': len(values[0])
-                    },
-                    'cell': {
-                        'userEnteredFormat': {
-                            'wrapStrategy': 'WRAP'
-                        }
-                    },
-                    'fields': 'userEnteredFormat.wrapStrategy'
-                }
-            }
-        ]
         
-        body = {'requests': requests}
-        self.service.spreadsheets().batchUpdate(
-            spreadsheetId=spreadsheet_id,
-            body=body
-        ).execute()
-        print(f"分析結果がシートID {sheet_id} に書き込まれました。")
+        print(f"分析結果がシート '{sheet_title}' に書き込まれました。")
+        # ここでシートIDを返す
+        return self.get_sheet_id_by_title(spreadsheet_id, sheet_title)
+    # ★★★ここまで修正★★★
+
+    def get_sheet_id_by_title(self, spreadsheet_id, sheet_title):
+        """シートのタイトルからシートIDを取得するヘルパーメソッド"""
+        sheet_metadata = self.service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+        sheets = sheet_metadata.get('sheets', '')
+        for sheet in sheets:
+            if sheet.get('properties', {}).get('title') == sheet_title:
+                return sheet.get('properties', {}).get('sheetId')
+        return None
     
     def format_sheet(self, spreadsheet_id, header_row_values, sheet_id_to_format=0):
         """
