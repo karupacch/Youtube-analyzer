@@ -41,3 +41,28 @@ button:hover {
 .success {
     background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;
 }
+
+.button-link {
+    display: inline-block;
+    padding: 10px 15px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    text-decoration: none;
+    font-weight: bold;
+    text-align: center;
+    transition: background-color 0.3s ease;
+    margin-left: 10px;
+}
+
+.button-link:hover {
+    background-color: #0056b3;
+}
+
+@layer components {
+    .button-link {
+        @apply inline-block px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500;
+    }
+}

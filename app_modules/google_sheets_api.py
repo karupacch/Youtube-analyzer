@@ -42,8 +42,8 @@ class GoogleSheetsAPI:
             with open(TOKEN_PICKLE_FILE, 'wb') as token:
                 pickle.dump(self.creds, token)
 
-    def create_spreadsheet(self, title):
-        """新しいGoogleスプレッドシートを作成し、そのIDを返します。"""
+    def create_spreadsheet(self, title, sheet_name='Sheet1'):
+        """新しいGoogleスプレッドシートを作成し、そのIDと最初のシートのIDを返します。"""
         spreadsheet_body = {
             'properties': {
                 'title': title
@@ -51,7 +51,7 @@ class GoogleSheetsAPI:
             'sheets': [
                 {
                     'properties': {
-                        'title': 'Sheet1' # 最初のシート名を明示的に'Sheet1'に設定
+                        'title': sheet_name # 最初のシート名を明示的に'sheet_name'に設定
                     }
                 }
             ]
@@ -69,6 +69,26 @@ class GoogleSheetsAPI:
         
         return spreadsheet_id, sheet_id # スプレッドシートIDとシートIDの両方をタプルとして返しているか確認
 
+    def create_new_sheet(self, spreadsheet_id, sheet_title):
+        """既存のスプレッドシートに新しいシートを作成し、そのIDを返します。"""
+        request_body = {
+            'requests': [{
+                'addSheet': {
+                    'properties': {
+                        'title': sheet_title
+                    }
+                }
+            }]
+        }
+        response = self.service.spreadsheets().batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body=request_body
+        ).execute()
+
+        new_sheet_id = response['replies'][0]['addSheet']['properties']['sheetId']
+        print(f"新しいシート '{sheet_title}' が作成されました。シートID: {new_sheet_id}")
+        return new_sheet_id
+    
     def write_data_to_sheet(self, spreadsheet_id, range_name, data_df):
         """指定されたスプレッドシートの範囲にDataFrameのデータを書き込みます。"""
         # DataFrameをヘッダー行を含むリストのリストに変換
@@ -85,6 +105,53 @@ class GoogleSheetsAPI:
         ).execute()
         print(f"{result.get('updatedCells')} セルが更新されました。")
         return result
+    
+    def write_analysis_to_sheet(self, spreadsheet_id, analysis_text, sheet_title, sheet_id):
+        """
+        指定されたスプレッドシートの新しいシートに分析結果を書き込みます。
+        """
+        # AIからの応答（Markdown形式）を行ごとに分割してリストに変換
+        values = [[line] for line in analysis_text.split('\n')]
+        body = {
+            'values': values
+        }
+        
+        # 最初のセルに書き込む
+        range_name = f"'{sheet_title}'!A1"
+        self.service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=range_name,
+            valueInputOption='RAW',
+            body=body
+        ).execute()
+
+        # 書き込んだセルに書式設定（テキストの折り返し）を適用
+        requests = [
+            {
+                'repeatCell': {
+                    'range': {
+                        'sheetId': self.get_sheet_id_by_title(spreadsheet_id, sheet_title),
+                        'startRowIndex': 0,
+                        'endRowIndex': len(values),
+                        'startColumnIndex': 0,
+                        'endColumnIndex': len(values[0])
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'wrapStrategy': 'WRAP'
+                        }
+                    },
+                    'fields': 'userEnteredFormat.wrapStrategy'
+                }
+            }
+        ]
+        
+        body = {'requests': requests}
+        self.service.spreadsheets().batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body=body
+        ).execute()
+        print(f"分析結果がシートID {sheet_id} に書き込まれました。")
     
     def format_sheet(self, spreadsheet_id, header_row_values, sheet_id_to_format=0):
         """
@@ -107,7 +174,7 @@ class GoogleSheetsAPI:
         requests.append({
             'updateDimensionProperties': {
                 'range': {
-                    'sheetId': 0, # 通常、最初のシートはsheetId 0
+                    'sheetId': sheet_id_to_format, # 通常、最初のシートはsheetId 0
                     'dimension': 'ROWS',
                     'startIndex': 1, # ヘッダー行（インデックス0）の次から適用
                     'endIndex': 2000, # 例: 2000行目まで適用（必要に応じて調整）
@@ -125,7 +192,7 @@ class GoogleSheetsAPI:
             requests.append({
                 'repeatCell': {
                     'range': {
-                        'sheetId': 0, # 通常、最初のシートはsheetId 0
+                        'sheetId': sheet_id_to_format, # 通常、最初のシートはsheetId 0
                         'startRowIndex': 0, # ヘッダー行を含む全ての行に適用
                         'endRowIndex': 2000, # 例: 2000行目まで適用（必要に応じて調整）
                         'startColumnIndex': description_col_index,
@@ -145,7 +212,7 @@ class GoogleSheetsAPI:
             requests.append({
                 'updateDimensionProperties': {
                     'range': {
-                        'sheetId': 0, # 通常、最初のシートはsheetId 0
+                        'sheetId': sheet_id_to_format,
                         'dimension': 'COLUMNS',
                         'startIndex': description_col_index,
                         'endIndex': description_col_index + 1,

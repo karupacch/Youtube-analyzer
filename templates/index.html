@@ -6,56 +6,66 @@
     <title>YouTube 動画情報集計サービス</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
 </head>
-<body>
-    <div id="app">
-        <h1>YouTube 動画情報集計サービス</h1>
-        <form action="/search" method="post">
-            <label for="genre">ジャンル:</label>
-            <input type="text" id="genre" name="genre" placeholder="例: ホラーゲーム, 料理">
-            <br>
-            <label for="query">検索キーワード:</label>
-            <input type="text" id="query" name="query" required placeholder="例: 猫 面白い, プログラミング 学習">
-            <br>
+<body class="bg-gray-100 p-8">
+    <div id="app" class="flex flex-col lg:flex-row gap-8 max-w-7xl mx-auto">
+        <div class="w-full lg:w-96 bg-white p-6 rounded-lg shadow-md flex-shrink-0">
+            <h1 class="text-2xl font-bold mb-6 text-center">YouTube 動画情報集計サービス</h1>
+            <form action="/search" method="post">
+                <div class="mb-4">
+                    <label for="genre" class="block text-sm font-medium text-gray-700">ジャンル:</label>
+                    <input type="text" id="genre" name="genre" placeholder="例: ホラーゲーム, 料理" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                </div>
+                <div class="mb-4">
+                    <label for="query" class="block text-sm font-medium text-gray-700">検索キーワード:</label>
+                    <input type="text" id="query" name="query" placeholder="例: 猫 面白い, プログラミング 学習" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                </div>
+                <div class="mb-4">
+                    <label for="video_type" class="block text-sm font-medium text-gray-700">動画タイプ:</label>
+                    <select id="video_type" name="video_type" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                        <option value="any" selected>両方</option>
+                        <option value="short">ショート動画のみ</option>
+                        <option value="long">ロング動画のみ</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label for="order" class="block text-sm font-medium text-gray-700">並び順:</label>
+                    <select id="order" name="order" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                        <option value="relevance" selected>関連度順</option>
+                        <option value="date">新しい順</option>
+                        <option value="viewCount">再生数順</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label for="published_after" class="block text-sm font-medium text-gray-700">公開期間 (開始):</label>
+                    <input type="date" id="published_after" name="published_after" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                </div>
+                <div class="mb-4">
+                    <label for="published_before" class="block text-sm font-medium text-gray-700">公開期間 (終了):</label>
+                    <input type="date" id="published_before" name="published_before" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                </div>
+                <div class="mb-6">
+                    <label for="max_results" class="block text-sm font-medium text-gray-700">最大取得件数 (1-50):</label>
+                    <input type="number" id="max_results" name="max_results" value="20" min="1" max="50" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                </div>
+                <div class="mb-6">
+                    <label class="flex items-center text-sm font-medium text-gray-700">
+                        <input type="checkbox" id="use_sheets_integration" name="use_sheets_integration" v-model="useSheetsIntegration" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
+                        <span class="ml-2">Google スプレッドシート連携を使用する</span>
+                    </label>
+                </div>
+                <button type="submit" id="submit_button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500" v-text="submitButtonText"></button>
+            </form>
+            {% if message %}
+                <div class="mt-6 p-4 rounded text-sm {{ message_type }}">
+                    {{ message | safe }}
+                </div>
+            {% endif %}
+        </div>
 
-            <label for="video_type">動画タイプ:</label>
-            <select id="video_type" name="video_type">
-                <option value="any" selected>両方</option>
-                <option value="short">ショート動画のみ</option>
-                <option value="long">ロング動画のみ</option>
-            </select>
-            <br>
-
-            <label for="order">並び順:</label>
-            <select id="order" name="order">
-                <option value="relevance" selected>関連度順</option>
-                <option value="date">新しい順</option>
-                <option value="viewCount">再生数順</option>
-            </select>
-            <br>
-
-            <label for="published_after">公開期間 (開始):</label>
-            <input type="date" id="published_after" name="published_after">
-            <br>
-
-            <label for="published_before">公開期間 (終了):</label>
-            <input type="date" id="published_before" name="published_before">
-            <br>
-
-            <label for="max_results">最大取得件数 (1-50):</label>
-            <input type="number" id="max_results" name="max_results" value="20" min="1" max="50">
-            <br>
-
-            <label>
-                <input type="checkbox" id="use_sheets_integration" name="use_sheets_integration" v-model="useSheetsIntegration">
-                Google スプレッドシート連携を使用する
-            </label>
-            <br><br>
-
-            <button type="submit" id="submit_button" v-text="submitButtonText"></button>
-        </form>
-        {% if message %}
-            <div class="message {{ message_type }}">{{ message | safe }}</div>
-        {% endif %}
+        <div class="lg:flex-grow bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-xl font-bold mb-4">分析結果</h2>
+            <p class="text-gray-600">ここに動画データの分析結果が表示されます。</p>
+        </div>
     </div>
 
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>

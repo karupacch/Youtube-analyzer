@@ -5,6 +5,7 @@ from flask import Flask, send_file, request, render_template
 from dotenv import load_dotenv
 import pandas as pd
 import io
+import zipfile
 
 # 自分で作成するAPI連携モジュールをインポート
 from .youtube_api import YouTubeAPI
@@ -22,9 +23,8 @@ app = Flask(__name__,
             template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'templates'),
             static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static'))
 
-# YouTube APIクライアントの初期化 (YouTubeAPIクラスのインスタンスを生成)
+# APIクライアントの初期化
 youtube_client = YouTubeAPI(api_key=YOUTUBE_API_KEY)
-# Google Sheets APIクライアントの初期化
 google_sheets_client = GoogleSheetsAPI()
 gemini_client = GeminiAPI()
 
@@ -36,14 +36,13 @@ gemini_client = GeminiAPI()
 # 検索フォームを表示するルート
 @app.route('/', methods=['GET'])
 def index():
-    # templates/index.html をレンダリング
     return render_template('index.html')
 
-# 検索リクエストを処理し、CSVを返すルートからスプレッドシートに書き出すように変更
+# 検索リクエストを処理し、CSVやスプレッドシートを返すルート
 @app.route('/search', methods=['POST'])
 def search():
-    query = request.form['query']
     genre = request.form.get('genre')
+    query = request.form.get('query')
     video_type = request.form.get('video_type', 'any')
     order = request.form.get('order', 'relevance')
     published_after = request.form.get('published_after') # 空の場合もあるのでデフォルト値は設定しない
@@ -51,74 +50,74 @@ def search():
     max_results = int(request.form.get('max_results', 20))
     use_sheets_integration = request.form.get('use_sheets_integration') # チェックボックスの状態を取得
 
-    if not query:
-        return render_template('index.html', message="検索キーワードを入力してください。", message_type="error")
+    # ジャンルと検索キーワードの両方が空の場合にエラー
+    if not genre and not query:
+        return render_template('index.html', message="ジャンルまたは検索キーワードを入力してください。", message_type="error")
 
-    # youtube_api.py で定義した search_videos_data メソッドを呼び出し
-    videos = []
+    # AIで生成された複数のキーワードを扱う
+    search_queries = []
     if genre:
-        # ユーザーがジャンルを入力した場合、AIにキーワードを生成させる
+        # AIでキーワードを生成
         keywords = gemini_client.generate_keywords(genre)
         if not keywords:
             return render_template('index.html', message="AIが検索キーワードを生成できませんでした。", message_type="error")
-        
-        # AIが生成したキーワードを使って動画を検索
-        # 複数のキーワードで検索する場合、YouTube APIの仕様によっては工夫が必要
-        query_for_search = " ".join(keywords)
-        videos = youtube_client.search_videos_data(
-            query=query_for_search, 
-            video_type=video_type, 
-            order=order,
-            published_after=published_after,
-            published_before=published_before,
-            max_results=max_results
-        )
+        search_queries = keywords
     else:
-        # 従来の検索キーワードで検索
-        if not query:
-             return render_template('index.html', message="検索キーワードを入力してください。", message_type="error")
+        # 従来の検索キーワードを使用
+        search_queries = [query]
 
+    # 複数の検索結果を格納するリスト
+    all_videos_data = []
+    
+    for q in search_queries:
         videos = youtube_client.search_videos_data(
-            query=query, 
+            query=q, 
             video_type=video_type, 
             order=order,
             published_after=published_after,
             published_before=published_before,
             max_results=max_results
         )
+        if videos:
+            all_videos_data.append({'query': q, 'videos': videos})
 
-    if not videos:
+    if not all_videos_data:
         return render_template('index.html', message="検索結果が見つかりませんでした。", message_type="error")
 
-    # Pandas DataFrameに変換
-    df = pd.DataFrame(videos)
+    # 全ての動画データを一つのDataFrameに結合する
+    combined_df = pd.concat([pd.DataFrame(item['videos']) for item in all_videos_data], ignore_index=True)
 
-    # DataFrameから「動画説明文」カラムを削除
-    if '動画説明文' in df.columns:
-        df = df.drop(columns=['動画説明文'])
+    # 結合したDataFrameをAI分析に渡す
+    analysis_result = gemini_client.analyze_video_data(combined_df)
 
-    if order == 'viewCount':
-        # '再生回数'カラムを数値型に変換します。変換できない値('N/A'など)はNaNになり、fillna(0)で0に置換します。
-        df['再生回数'] = pd.to_numeric(df['再生回数'], errors='coerce').fillna(0)
-        # 再生回数が多い順（降順）にソートします
-        df = df.sort_values(by='再生回数', ascending=False)
-
-    # ★Google スプレッドシートへのエクスポート処理★
-    if use_sheets_integration == 'on': # チェックボックスがオンの場合
+    # 出力形式による分岐
+    if use_sheets_integration == 'on':
         try:
-            spreadsheet_title = f"Youtube_Results_{query}_{video_type}"
-            spreadsheet_id, sheet_id = google_sheets_client.create_spreadsheet(spreadsheet_title)
-            
-            # データ書き込み
-            google_sheets_client.write_data_to_sheet(spreadsheet_id, 'Sheet1!A1', df)
+            # スプレッドシート出力の場合
+            spreadsheet_title = f"Youtube_Results_by_AI_genre_{genre}" if genre else f"Youtube_Results_{query}_{video_type}"
+            spreadsheet_id, sheet_id = google_sheets_client.create_spreadsheet(spreadsheet_title, sheet_name=search_queries[0])
 
-            # データ書き込み後にフォーマットを適用
-            # df.columns.tolist()でDataFrameのヘッダー（カラム名）を渡します
-            if sheet_id is not None:
-                google_sheets_client.format_sheet(spreadsheet_id, df.columns.tolist(), sheet_id)
-            else:
-                print("警告: シートIDが取得できなかったため、フォーマットは適用されません。")
-            
+            for item in all_videos_data:
+                df = pd.DataFrame(item['videos'])
+                if '動画説明文' in df.columns:
+                    df = df.drop(columns=['動画説明文'])
+                if order == 'viewCount':
+                    df['再生回数'] = pd.to_numeric(df['再生回数'], errors='coerce').fillna(0)
+                    df = df.sort_values(by='再生回数', ascending=False)
+                
+                # 最初のシートには既に書き込んでいるので、2つ目以降のシートを作成
+                if item['query'] != search_queries[0]:
+                    sheet_id = google_sheets_client.create_new_sheet(spreadsheet_id, item['query'])
+
+                google_sheets_client.write_data_to_sheet(spreadsheet_id, f"'{item['query']}'!A1", df)
+
+                if sheet_id is not None:
+                    google_sheets_client.format_sheet(spreadsheet_id, df.columns.tolist(), sheet_id)
+
+        # 分析結果を新しいシートに書き込む
+            analysis_sheet_id = google_sheets_client.create_new_sheet(spreadsheet_id, '分析結果')
+            google_sheets_client.write_analysis_to_sheet(spreadsheet_id, analysis_result, analysis_sheet_id)
+
             sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
             message = f"検索結果をGoogleスプレッドシートにエクスポートしました: <a href='{sheets_url}' target='_blank' class='button-link'>スプレッドシートを開く</a>"
             message_type = "success"
@@ -128,20 +127,30 @@ def search():
             message = f"Google スプレッドシートへのエクスポートに失敗しました: {e}"
             message_type = "error"
         
-        # CSVダウンロード処理は削除し、スプレッドシートへのエクスポート結果をメッセージとして返す
         return render_template('index.html', message=message, message_type=message_type)
-    else: # チェックボックスがオフの場合（CSVダウンロード）
-        output = io.StringIO()
-        df.to_csv(output, index=False, encoding='utf-8-sig')
-        output.seek(0)
         
-        # CSVファイルをダウンロードとして送信
-        return send_file(
-            io.BytesIO(output.getvalue().encode('utf-8-sig')),
-            mimetype='text/csv',
-            as_attachment=True,
-            download_name=f'youtube_videos_{query}_{video_type}.csv'
-        )
+    else:
+        # CSV出力の場合
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for item in all_videos_data:
+                df = pd.DataFrame(item['videos'])
+                if '動画説明文' in df.columns:
+                    df = df.drop(columns=['動画説明文'])
+                if order == 'viewCount':
+                    df['再生回数'] = pd.to_numeric(df['再生回数'], errors='coerce').fillna(0)
+                    df = df.sort_values(by='再生回数', ascending=False)
+
+                csv_buffer = io.StringIO()
+                df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
+                csv_buffer.seek(0)
+                zip_file.writestr(f"{item['query']}.csv", csv_buffer.getvalue())
+
+        zip_buffer.seek(0)
+        
+        # CSVダウンロードボタンの代わりに、分析結果を表示して、別途ダウンロードボタンを設置することも可能
+        # 今回は、ダウンロードと分析結果表示を同時に行い、分析結果をテンプレートに渡す
+        return render_template('index.html', analysis_result=analysis_result)
 
 # アプリケーションを実行
 if __name__ == '__main__':
