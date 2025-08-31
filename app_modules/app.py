@@ -18,7 +18,9 @@ load_dotenv()
 YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
 
 # Flaskアプリケーションの初期化
-app = Flask(__name__, template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'templates'))
+app = Flask(__name__,
+            template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'templates'),
+            static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static'))
 
 # YouTube APIクライアントの初期化 (YouTubeAPIクラスのインスタンスを生成)
 youtube_client = YouTubeAPI(api_key=YOUTUBE_API_KEY)

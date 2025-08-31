@@ -5,7 +5,7 @@ class GeminiAPI:
     def __init__(self):
         # 環境変数からAPIキーを取得
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        self.model = genai.GenerativeModel('gemini-pro')
+        self.model = genai.GenerativeModel('gemini-2.5-pro')
 
     def generate_keywords(self, genre):
         """
