@@ -1,11 +1,130 @@
 # youtube_api.py
 
+import os
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from urllib.parse import unquote
+import re
+from datetime import datetime
 
 class YouTubeAPI:
     def __init__(self, api_key):
-        self.youtube = build('youtube', 'v3', developerKey=api_key, credentials=None)
+        self.api_key = api_key
+        self.youtube = build('youtube', 'v3', developerKey=self.api_key)
+
+    def get_channel_id_from_url(self, channel_url):
+        """
+        YouTubeチャンネルのURLからチャンネルIDを取得する
+        """
+        try:
+            # URLからチャンネルハンドルを抽出 (例: @handle)
+            match = re.search(r'@([^/]+)', channel_url)
+            if not match:
+                return None
+            
+            handle = unquote(match.group(1))
+
+            # ハンドルを使ってチャンネル情報を取得
+            response = self.youtube.channels().list(
+                part='id',
+                forHandle=handle
+            ).execute()
+
+            if 'items' in response and len(response['items']) > 0:
+                return response['items'][0]['id']
+            else:
+                return None
+        except Exception as e:
+            print(f"URLからのチャンネルID取得中にエラーが発生しました: {e}")
+            return None
+        
+    def search_videos_by_channel(self, channel_url, order, max_results):
+        """
+        指定されたチャンネルURLの動画を検索する
+        """
+        channel_id = self.get_channel_id_from_url(channel_url)
+        if not channel_id:
+            return None
+
+        try:
+            # チャンネルのアップロード再生リストIDを取得
+            channel_response = self.youtube.channels().list(
+                part='contentDetails',
+                id=channel_id
+            ).execute()
+
+            if not channel_response['items']:
+                return None
+
+            playlist_id = channel_response['items'][0]['contentDetails']['relatedPlaylists']['uploads']
+
+            # 再生リストから動画を取得
+            playlist_items_response = self.youtube.playlistItems().list(
+                part='snippet,contentDetails',
+                playlistId=playlist_id,
+                maxResults=max_results,
+            ).execute()
+
+            video_ids = [item['contentDetails']['videoId'] for item in playlist_items_response['items']]
+
+            if not video_ids:
+                return []
+
+            # 動画の詳細情報を取得
+            videos_response = self.youtube.videos().list(
+                part="snippet,statistics,contentDetails",
+                id=",".join(video_ids)
+            ).execute()
+
+            # データを整形
+            videos_data = self._parse_videos_data(videos_response['items'])
+
+            # 再生回数順、新着順でソート
+            if order == 'viewCount':
+                videos_data = sorted(videos_data, key=lambda x: int(x.get('再生回数', 0)), reverse=True)
+            elif order == 'date':
+                 videos_data = sorted(videos_data, key=lambda x: x.get('公開日', ''), reverse=True)
+
+
+            return videos_data
+
+        except Exception as e:
+            print(f"チャンネル動画の検索中にエラーが発生しました: {e}")
+            return None
+
+    def _parse_videos_data(self, items):
+        """
+        APIレスポンスから動画データを抽出し、整形する
+        """
+        videos_data = []
+        for item in items:
+            video_id = item['id']
+            snippet = item['snippet']
+            statistics = item.get('statistics', {})
+            content_details = item.get('contentDetails', {})
+            
+            # 日付形式を変換
+            published_at_str = snippet.get('publishedAt')
+            published_at_dt = datetime.strptime(published_at_str, '%Y-%m-%dT%H:%M:%SZ')
+            formatted_date = published_at_dt.strftime('%Y/%m/%d')
+
+            video_data = {
+                '動画タイトル': snippet.get('title'),
+                '動画ID': video_id,
+                'チャンネル名': snippet.get('channelTitle'),
+                'チャンネルID': snippet.get('channelId'),
+                '公開日': formatted_date,
+                '再生回数': statistics.get('viewCount'),
+                '高評価数': statistics.get('likeCount'),
+                'コメント数': statistics.get('commentCount'),
+                '動画説明文': snippet.get('description'),
+                'サムネイルURL': snippet.get('thumbnails', {}).get('high', {}).get('url'),
+                '動画の長さ': content_details.get('duration'),
+                '動画リンク': f"https://www.youtube.com/watch?v={video_id}",
+                'チャンネルリンク': f"https://www.youtube.com/channel/{snippet.get('channelId')}"
+            }
+            videos_data.append(video_data)
+        return videos_data
 
     def _parse_iso8601_duration(self, duration_iso):
         duration_seconds = 0

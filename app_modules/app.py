@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import pandas as pd
 import io
 import zipfile
+import re
 
 # 自分で作成するAPI連携モジュールをインポート
 from .youtube_api import YouTubeAPI
@@ -42,37 +43,61 @@ def index():
 # 検索リクエストを処理し、CSVやスプレッドシートを返すルート
 @app.route('/search', methods=['POST'])
 def search():
-    genre = request.form.get('genre')
-    query = request.form.get('query')
+    genre = request.form.get('genre', '').strip()
+    query = request.form.get('query', '').strip()
+    channel_url = request.form.get('channel_url', '').strip()
     video_type = request.form.get('video_type', 'any')
     order = request.form.get('order', 'relevance')
-    published_after = request.form.get('published_after') # 空の場合もあるのでデフォルト値は設定しない
-    published_before = request.form.get('published_before')
+    published_after = request.form.get('published_after', '').strip()
+    published_before = request.form.get('published_before', '').strip()
     max_results = int(request.form.get('max_results', 20))
     use_sheets_integration = request.form.get('use_sheets_integration') # チェックボックスの状態を取得
 
-    # ジャンルと検索キーワードの両方が空の場合にエラー
-    if not genre and not query:
-        return render_template('index.html', message="ジャンルまたは検索キーワードを入力してください。", message_type="error")
+    # ジャンル、検索キーワード、チャンネルURLのいずれも空の場合にエラー
+    if not genre and not query and not channel_url:
+        return render_template('index.html', message="ジャンル、検索キーワード、またはチャンネルリンクを入力してください。", message_type="error")
 
-    # AIで生成された複数のキーワードを扱う
+    all_videos_data = []
     search_queries = []
-    if genre:
-        # AIでキーワードを生成
+
+    if channel_url:
+        # チャンネルURLで検索
+        search_queries = [channel_url]
+        videos = youtube_client.search_videos_by_channel(
+            channel_url=channel_url,
+            order=order,
+            max_results=max_results
+        )
+        if videos is None:
+             return render_template('index.html', message="指定されたチャンネルが見つからないか、動画の取得に失敗しました。", message_type="error")
+        if videos:
+            all_videos_data.append({'query': channel_url, 'videos': videos})
+
+    elif genre:
+        # AIで生成された複数のキーワードを扱う
         keywords = gemini_client.generate_keywords(genre)
         if not keywords:
             return render_template('index.html', message="AIが検索キーワードを生成できませんでした。", message_type="error")
         search_queries = keywords
+
+        # 複数の検索結果を格納するリスト
+        for q in search_queries:
+            videos = youtube_client.search_videos_data(
+                query=q,
+                video_type=video_type,
+                order=order,
+                published_after=published_after,
+                published_before=published_before,
+                max_results=max_results
+            )
+            if videos:
+                all_videos_data.append({'query': q, 'videos': videos})
+
     else:
         # 従来の検索キーワードを使用
         search_queries = [query]
-
-    # 複数の検索結果を格納するリスト
-    all_videos_data = []
-    
-    for q in search_queries:
         videos = youtube_client.search_videos_data(
-            query=q, 
+            query=query, 
             video_type=video_type, 
             order=order,
             published_after=published_after,
@@ -80,13 +105,17 @@ def search():
             max_results=max_results
         )
         if videos:
-            all_videos_data.append({'query': q, 'videos': videos})
+            all_videos_data.append({'query': query, 'videos': videos})
 
     if not all_videos_data:
         return render_template('index.html', message="検索結果が見つかりませんでした。", message_type="error")
 
     # 全ての動画データを一つのDataFrameに結合する
     combined_df = pd.concat([pd.DataFrame(item['videos']) for item in all_videos_data], ignore_index=True)
+
+    # DataFrameが空の場合も結果なしと判断
+    if combined_df.empty:
+        return render_template('index.html', message="検索結果が見つかりませんでした。", message_type="error")
 
     # 結合したDataFrameをAI分析に渡す
     analysis_result = gemini_client.analyze_video_data(combined_df)
@@ -95,25 +124,38 @@ def search():
     if use_sheets_integration == 'on':
         try:
             # スプレッドシート出力の場合
-            spreadsheet_title = f"Youtube_Results_by_AI_genre_{genre}" if genre else f"Youtube_Results_{query}_{video_type}"
-            spreadsheet_id, sheet_id = google_sheets_client.create_spreadsheet(spreadsheet_title, sheet_name=search_queries[0])
+            spreadsheet_title = f"Youtube_Results_Channel" if channel_url else (f"Youtube_Results_AI_Genre_{genre}" if genre else f"Youtube_Results_{query}")
+            # ★★★ シート名を100文字に制限 ★★★
+            first_sheet_name = all_videos_data[0]['query'][:100]
+            spreadsheet_id, first_sheet_id = google_sheets_client.create_spreadsheet(spreadsheet_title, sheet_name=first_sheet_name)
 
-            for item in all_videos_data:
+            for i, item in enumerate(all_videos_data):
                 df = pd.DataFrame(item['videos'])
+                if df.empty:
+                    continue
+
                 if '動画説明文' in df.columns:
                     df = df.drop(columns=['動画説明文'])
-                if order == 'viewCount':
+                if order == 'viewCount' and '再生回数' in df.columns:
                     df['再生回数'] = pd.to_numeric(df['再生回数'], errors='coerce').fillna(0)
                     df = df.sort_values(by='再生回数', ascending=False)
                 
-                # 最初のシートには既に書き込んでいるので、2つ目以降のシートを作成
-                if item['query'] != search_queries[0]:
-                    sheet_id = google_sheets_client.create_new_sheet(spreadsheet_id, item['query'])
+                sheet_id_for_formatting = None
+                current_sheet_name = item['query'][:100]
 
-                google_sheets_client.write_data_to_sheet(spreadsheet_id, f"'{item['query']}'!A1", df)
+                # ループのインデックスを見て、2枚目以降のシートを作成
+                if i == 0:
+                    # 最初のシートは既に存在するので、書き込みだけ行う
+                    google_sheets_client.write_data_to_sheet(spreadsheet_id, f"'{current_sheet_name}'!A1", df)
+                    sheet_id_for_formatting = first_sheet_id
+                else:
+                    # 2枚目以降のシートを新規作成
+                    new_sheet_id = google_sheets_client.create_new_sheet(spreadsheet_id, current_sheet_name)
+                    google_sheets_client.write_data_to_sheet(spreadsheet_id, f"'{current_sheet_name}'!A1", df)
+                    sheet_id_for_formatting = new_sheet_id
 
-                if sheet_id is not None:
-                    google_sheets_client.format_sheet(spreadsheet_id, df.columns.tolist(), sheet_id)
+                if sheet_id_for_formatting is not None:
+                    google_sheets_client.format_sheet(spreadsheet_id, df.columns.tolist(), sheet_id_for_formatting)
 
             # 分析結果を新しいシートに書き込む
             analysis_sheet_title = '分析結果'
