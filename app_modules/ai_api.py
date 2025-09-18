@@ -1,4 +1,5 @@
 import os
+from google.cloud import videointelligence_v1 as videointelligence
 import google.generativeai as genai
 
 class GeminiAPI:
@@ -53,3 +54,51 @@ class GeminiAPI:
         #     return "分析結果の生成中にエラーが発生しました。"
         print("開発モード: AIによるデータ分析はスキップされました。")
         return "これは開発モードで生成されたモックの分析結果です。AIを利用するには、有料プランにアップグレードするか、日次クォータのリセットをお待ちください。"
+
+class VideoAnalysisClient:
+    def __init__(self):
+        # 環境変数 GOOGLE_APPLICATION_CREDENTIALS が設定されていれば、自動的に認証される
+        pass
+
+    def analyze_uploaded_video(self, video_path):
+        """
+        アップロードされたローカルの動画ファイルを分析し、詳細なメタデータを返します。
+        """
+        client = videointelligence.VideoIntelligenceServiceClient()
+        
+        with open(video_path, "rb") as movie:
+            input_content = movie.read()
+        
+        features = [
+            videointelligence.Feature.LABEL_DETECTION,
+            videointelligence.Feature.SHOT_CHANGE_DETECTION
+        ]
+        
+        operation = client.annotate_video(
+            request={"features": features, "input_content": input_content}
+        )
+        
+        print("\n動画分析処理が完了するまでお待ちください...")
+        result = operation.result(timeout=300)
+        print("\n分析が完了しました。")
+        
+        analysis_data = {}
+        # 動画全体のラベルを抽出
+        if result.annotation_results[0].segment_label_annotations:
+            analysis_data['segment_labels'] = [
+                {
+                    'label': label.entity.description
+                } for label in result.annotation_results[0].segment_label_annotations
+            ]
+        
+        # ショット（シーン）ごとの情報を抽出
+        if result.annotation_results[0].shot_annotations:
+            analysis_data['shots'] = [
+                {
+                    'start_time': f'{shot.start_time_offset.seconds}.{shot.start_time_offset.microseconds // 100000:01d}s',
+                    'end_time': f'{shot.end_time_offset.seconds}.{shot.end_time_offset.microseconds // 100000:01d}s'
+                } for shot in result.annotation_results[0].shot_annotations
+            ]
+
+        # このメタデータは後続ステップで利用
+        return analysis_data

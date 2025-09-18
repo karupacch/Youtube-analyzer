@@ -16,3 +16,6 @@ Thumbs.db
 # 認証トークンファイル
 token.pickle
 credentials.json
+
+# Google Cloud認証情報ファイル
+youtube-getdate-457312-383b9e55f6aa.json

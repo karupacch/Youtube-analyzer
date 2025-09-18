@@ -2,17 +2,18 @@
 
 import os
 import json
-from flask import Flask, send_file, request, render_template
+from flask import Flask, send_file, request, render_template, jsonify
 from dotenv import load_dotenv
+from werkzeug.utils import secure_filename
 import pandas as pd
 import io
 import zipfile
 import re
 
 # 自分で作成するAPI連携モジュールをインポート
-from .youtube_api import YouTubeAPI
-from .google_sheets_api import GoogleSheetsAPI
-from .ai_api import GeminiAPI
+from app_modules.youtube_api import YouTubeAPI
+from app_modules.google_sheets_api import GoogleSheetsAPI
+from app_modules.ai_api import GeminiAPI, VideoAnalysisClient
 
 # .envファイルから環境変数を読み込む
 load_dotenv()
@@ -40,6 +41,11 @@ gemini_client = GeminiAPI()
 def index():
     return render_template('index.html')
 
+# Google Sheetsやファイル名で使えない文字を除去する関数
+def sanitize_name(name):
+    # Google Sheetsのシート名やファイル名で使えない文字を_に置換
+    return re.sub(r'[\\/*?:\[\]]', '_', name)
+
 # 検索リクエストを処理し、CSVやスプレッドシートを返すルート
 @app.route('/search', methods=['POST'])
 def search():
@@ -50,7 +56,10 @@ def search():
     order = request.form.get('order', 'relevance')
     published_after = request.form.get('published_after', '').strip()
     published_before = request.form.get('published_before', '').strip()
-    max_results = int(request.form.get('max_results', 20))
+    try:
+        max_results = int(request.form.get('max_results', 20))
+    except (ValueError, TypeError):
+        max_results = 20
     use_sheets_integration = request.form.get('use_sheets_integration') # チェックボックスの状態を取得
 
     # ジャンル、検索キーワード、チャンネルURLのいずれも空の場合にエラー
@@ -121,12 +130,12 @@ def search():
     analysis_result = gemini_client.analyze_video_data(combined_df)
 
     # 出力形式による分岐
-    if use_sheets_integration == 'on':
-        try:
-            # スプレッドシート出力の場合
-            spreadsheet_title = f"Youtube_Results_Channel" if channel_url else (f"Youtube_Results_AI_Genre_{genre}" if genre else f"Youtube_Results_{query}")
-            # ★★★ シート名を100文字に制限 ★★★
-            first_sheet_name = all_videos_data[0]['query'][:100]
+    try:
+        if use_sheets_integration == 'on':
+            # スプレッドシートのタイトルを定義
+            spreadsheet_title = f"YouTube検索_{genre or query or channel_url}"
+            # ★★★ シート名を100文字に制限し、sanitize ★★★
+            first_sheet_name = sanitize_name(all_videos_data[0]['query'][:100])
             spreadsheet_id, first_sheet_id = google_sheets_client.create_spreadsheet(spreadsheet_title, sheet_name=first_sheet_name)
 
             for i, item in enumerate(all_videos_data):
@@ -138,10 +147,7 @@ def search():
                     df = df.drop(columns=['動画説明文'])
                 if order == 'viewCount' and '再生回数' in df.columns:
                     df['再生回数'] = pd.to_numeric(df['再生回数'], errors='coerce').fillna(0)
-                    df = df.sort_values(by='再生回数', ascending=False)
-                
-                sheet_id_for_formatting = None
-                current_sheet_name = item['query'][:100]
+                current_sheet_name = sanitize_name(item['query'][:100])
 
                 # ループのインデックスを見て、2枚目以降のシートを作成
                 if i == 0:
@@ -159,7 +165,7 @@ def search():
 
             # 分析結果を新しいシートに書き込む
             analysis_sheet_title = '分析結果'
-            analysis_sheet_id = google_sheets_client.create_new_sheet(spreadsheet_id, analysis_sheet_title)
+            google_sheets_client.create_new_sheet(spreadsheet_id, analysis_sheet_title)
             google_sheets_client.write_analysis_to_sheet(spreadsheet_id, analysis_result, analysis_sheet_title)
 
             sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
@@ -167,40 +173,65 @@ def search():
             message_type = "success"
 
             return render_template('index.html', message=message, message_type=message_type, analysis_result=analysis_result)
+        else:
+            # CSV出力の場合
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                for item in all_videos_data:
+                    df = pd.DataFrame(item['videos'])
+                    if '動画説明文' in df.columns:
+                        df = df.drop(columns=['動画説明文'])
+                    if order == 'viewCount':
+                        df['再生回数'] = pd.to_numeric(df['再生回数'], errors='coerce').fillna(0)
+                        df = df.sort_values(by='再生回数', ascending=False)
 
-        except Exception as e:
-            print(f"Google スプレッドシートへのエクスポート中にエラーが発生しました: {e}")
-            message = f"Google スプレッドシートへのエクスポートに失敗しました: {e}"
-            message_type = "error"
-            return render_template('index.html', message=message, message_type=message_type, analysis_result=analysis_result)
-        
-    else:
-        # CSV出力の場合
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            for item in all_videos_data:
-                df = pd.DataFrame(item['videos'])
-                if '動画説明文' in df.columns:
-                    df = df.drop(columns=['動画説明文'])
-                if order == 'viewCount':
-                    df['再生回数'] = pd.to_numeric(df['再生回数'], errors='coerce').fillna(0)
-                    df = df.sort_values(by='再生回数', ascending=False)
+                    csv_filename = f"{sanitize_name(item['query'])}.csv"
+                    csv_buffer = io.BytesIO()
+                    df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
+                    csv_buffer.seek(0)
+                    zip_file.writestr(csv_filename, csv_buffer.getvalue())
 
-                csv_buffer = io.StringIO()
-                df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                csv_buffer.seek(0)
-                zip_file.writestr(f"{item['query']}.csv", csv_buffer.getvalue())
+            zip_buffer.seek(0)
+            
+            # CSVダウンロードボタンの代わりに、分析結果を表示して、別途ダウンロードボタンを設置することも可能
+            return send_file(
+                zip_buffer,
+                mimetype='application/zip',
+                as_attachment=True,
+                download_name=f'youtube_videos_by_genre_{genre}.zip' if genre else f'youtube_videos_{query}_{video_type}.zip'
+            )
+    except Exception as e:
+        print(f"Google スプレッドシートへのエクスポート中にエラーが発生しました: {e}")
+        message = f"Google スプレッドシートへのエクスポートに失敗しました: {e}"
+        message_type = "error"
+        return render_template('index.html', message=message, message_type=message_type, analysis_result=analysis_result)
 
-        zip_buffer.seek(0)
-        
-        # CSVダウンロードボタンの代わりに、分析結果を表示して、別途ダウンロードボタンを設置することも可能
-        return send_file(
-            zip_buffer,
-            mimetype='application/zip',
-            as_attachment=True,
-            download_name=f'youtube_videos_by_genre_{genre}.zip' if genre else f'youtube_videos_{query}_{video_type}.zip'
-        )
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'video_file' not in request.files:
+        return jsonify({'error': 'ファイルがアップロードされていません'}), 400
+
+    video_file = request.files['video_file']
+    if video_file.filename == '':
+        return jsonify({'error': 'ファイルが選択されていません'}), 400
+
+    filename = secure_filename(video_file.filename)
+    filepath = os.path.join('/tmp', filename) # 一時的にファイルを保存
+    video_file.save(filepath)
+
+    try:
+        # ここでAIクライアントを呼び出す
+        video_analysis_client = VideoAnalysisClient()
+        analysis_results = video_analysis_client.analyze_uploaded_video(filepath)
+        return jsonify({'analysis_results': analysis_results}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath) # 処理後に一時ファイルを削除
+# （他の関数やルート定義の後にこのブロックを配置）
 
 # アプリケーションを実行
 if __name__ == '__main__':
+    app.run(debug=True) # debug=True は開発中に便利（コード変更で自動再起動など）
     app.run(debug=True) # debug=True は開発中に便利（コード変更で自動再起動など）

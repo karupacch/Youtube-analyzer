@@ -59,6 +59,18 @@
                 </div>
                 <button type="submit" id="submit_button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500" v-text="submitButtonText"></button>
             </form>
+            <form action="/upload" method="post" enctype="multipart/form-data" class="mt-8">
+                <h2 class="text-xl font-bold mb-4">動画ファイルをアップロードして分析</h2>
+                <div class="mb-4">
+                    <label for="video_file" class="block text-gray-700 text-sm font-bold mb-2">動画ファイル</label>
+                    <input type="file" name="video_file" id="video_file" class="w-full px-3 py-2 border rounded-md text-gray-700 focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="flex items-center justify-between">
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        ファイルを分析
+                    </button>
+                </div>
+            </form>
             {% if message %}
                 <div class="mt-6 p-4 rounded text-sm {{ message_type }}">
                     {{ message | safe }}
